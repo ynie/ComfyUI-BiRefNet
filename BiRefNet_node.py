@@ -73,7 +73,7 @@ class BiRefNet_node:
         if torch.cuda.is_available():
             cuda_deviceds = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
         else:
-            []
+            cuda_deviceds = []
 
         return {
             "required": {
