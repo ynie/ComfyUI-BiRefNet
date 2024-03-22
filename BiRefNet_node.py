@@ -36,6 +36,9 @@ class BiRefNet_img_processor:
         image = self.transform_image(_image_rs)
         return image
 
+BI_REF_NET_MODEL_MAPPING = {}
+BI_REF_NET_PROCESSOR_MAPPING = {}
+
 class BiRefNet_node:
     def __init__(self):
         self.ready = False
@@ -65,7 +68,6 @@ class BiRefNet_node:
             logger.error(f"Failed to load the model: {e}")
             self.ready = False
             raise RuntimeError(f"Model loading failed: {e}")
-
 
     # Correctly move INPUT_TYPES to the class level
     @classmethod
@@ -97,10 +99,10 @@ class BiRefNet_node:
                 device = "cpu"
 
         if not self.ready:
-            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-ep480.pth")
+            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet_DIS_ep580.pth")
             self.load(weight_path, device=device)
         
-        image = image.squeeze().numpy()
+        image = image.squeeze().cpu().numpy()
         img = self.processor(image)
         inputs = img[None, ...].to(device)
         logger.debug(f"{inputs.shape}")
