@@ -102,7 +102,7 @@ class BiRefNet_node:
             weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-ep480.pth")
             self.load(weight_path, device=device)
         
-        image = image.squeeze().numpy()
+        image = image.squeeze().cpu().numpy()
         img = self.processor(image)
         inputs = img[None, ...].to(device)
         logger.debug(f"{inputs.shape}")
