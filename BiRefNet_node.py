@@ -38,25 +38,40 @@ class BiRefNet_img_processor:
         return image
 
 
+BI_REF_NET_MODEL_MAPPING = {}
+BI_REF_NET_PROCESSOR_MAPPING = {}
 
 class BiRefNet_node:
     def __init__(self):
         self.ready = False
 
     def load(self, weight_path, device, verbose=False):
-        # load model
-        self.model = BiRefNet()
-        state_dict = torch.load(weight_path, map_location='cpu')
-        unwanted_prefix = '_orig_mod.'
-        for k, v in list(state_dict.items()):
-            if k.startswith(unwanted_prefix):
-                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-        self.model.load_state_dict(state_dict)
-        self.model = self.model.to(device)
-        self.model.eval()
+        global BI_REF_NET_MODEL_MAPPING
+        global BI_REF_NET_PROCESSOR_MAPPING
 
-        # load processor
-        self.processor = BiRefNet_img_processor(config)
+        if weight_path in BI_REF_NET_MODEL_MAPPING:
+            self.model = BI_REF_NET_MODEL_MAPPING[weight_path]
+        else:
+            print(f"[SLOW MODEL LOADING] loading BiRefNet model {weight_path}.")
+            self.model = BiRefNet()
+            state_dict = torch.load(weight_path, map_location='cpu')
+            unwanted_prefix = '_orig_mod.'
+            for k, v in list(state_dict.items()):
+                if k.startswith(unwanted_prefix):
+                    state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+            self.model.load_state_dict(state_dict)
+            self.model = self.model.to(device)
+            self.model.eval()
+            BI_REF_NET_MODEL_MAPPING[weight_path] = self.model
+            print(f"[SLOW MODEL LOADING] finished loading BiRefNet model {weight_path}.")
+
+        if weight_path in BI_REF_NET_PROCESSOR_MAPPING:
+            self.processor = BI_REF_NET_PROCESSOR_MAPPING[weight_path]
+        else:
+            print(f"[SLOW MODEL LOADING] loading BiRefNet processor {weight_path}.")
+            self.processor = BiRefNet_img_processor(config)
+            BI_REF_NET_PROCESSOR_MAPPING[weight_path] = self.processor
+            print(f"[SLOW MODEL LOADING] finished loading BiRefNet processor {weight_path}.")
 
         self.ready = True
         if verbose:
