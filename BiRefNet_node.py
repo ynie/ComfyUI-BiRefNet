@@ -114,7 +114,7 @@ class BiRefNet_node:
                 device = "cpu"
 
         if not self.ready:
-            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-ep480.pth")
+            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet_DIS_ep580.pth")
             self.load(weight_path, device=device)
         
         image = image.squeeze().cpu().numpy()
