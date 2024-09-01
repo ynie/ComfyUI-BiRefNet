@@ -18,6 +18,7 @@ from torchvision import transforms
 
 from loguru import logger
 from folder_paths import models_dir
+from image_proc import refine_foreground
 
 config = Config()
 
@@ -47,19 +48,19 @@ class BiRefNet_node:
         # Example structure, adjust according to your actual input requirements
         return {
             "required": {
-                "image": ("IMAGE", {}),
+                "input_image": ("IMAGE", {}),
             },
             "optional": {
-                # Define optional inputs if any
+                "model_name": ("STRING", {"default": "BiRefNet-DIS-epoch_590.pth", "multiline": False, "dynamicPrompts": False}),
             }
         }
 
-    RETURN_TYPES = ("MASK", )
-    RETURN_NAMES = ("mask", )
+    RETURN_TYPES = ("IMAGE", )
+    RETURN_NAMES = ("image", )
     FUNCTION = "matting"
     CATEGORY = "Fooocus"
 
-    def matting(self, image):
+    def matting(self, input_image, model_name: str = "BiRefNet-DIS-epoch_590.pth"):
         # process auto device
         device = comfy.model_management.get_torch_device()
 
@@ -68,7 +69,7 @@ class BiRefNet_node:
 
         if BI_REF_NET_MODEL is None:
             model = BiRefNet()
-            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet_DIS_ep580.pth")
+            weight_path = os.path.join(models_dir, "BiRefNet", model_name)
             state_dict = torch.load(weight_path, map_location=device)
             unwanted_prefix = '_orig_mod.'
             for k, v in list(state_dict.items()):
@@ -83,22 +84,31 @@ class BiRefNet_node:
         if BI_REF_NET_PROCESSOR is None:
             BI_REF_NET_PROCESSOR = BiRefNet_img_processor(config)
 
-        image = image.squeeze().numpy()
-        img = BI_REF_NET_PROCESSOR(image)
+        img = BI_REF_NET_PROCESSOR(input_image.squeeze().numpy())
         inputs = img[None, ...].to(device)
         logger.debug(f"{inputs.shape}")
         
         with torch.no_grad():
-            BI_REF_NET_MODEL.to(device)  # Move the model to the selected device
-            scaled_preds = BI_REF_NET_MODEL(inputs)[-1].sigmoid()
+            preds = BI_REF_NET_MODEL(inputs)[-1].sigmoid().cpu()
+        pred = preds[0].squeeze()
 
-        res = nn.functional.interpolate(
-            scaled_preds[0].unsqueeze(0),
-            size=image.shape[:2],
-            mode='bilinear',
-            align_corners=True
-        )
-        return res
+        input_pil_image = tensor2pil(input_image)
+
+        # Show Results
+        pred_pil = transforms.ToPILImage()(pred)
+        pred_pil.resize(input_pil_image.size)
+
+        image_masked = refine_foreground(input_pil_image, pred_pil)
+        image_masked.putalpha(pred_pil.resize(input_pil_image.size))
+        return pil2tensor(image_masked),
+
+
+def tensor2pil(image):
+    return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
+
+
+def pil2tensor(image):
+    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
 
 
 NODE_CLASS_MAPPINGS = {
