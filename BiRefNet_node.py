@@ -51,16 +51,17 @@ class BiRefNet_node:
                 "input_image": ("IMAGE", {}),
             },
             "optional": {
-                "model_name": ("STRING", {"default": "BiRefNet-DIS-epoch_590.pth", "multiline": False, "dynamicPrompts": False}),
+                "apply_fast_foreground_estimation": ("BOOLEAN", {"default": True},),
+                "model_name": ("STRING", {"default": "BiRefNet-general-epoch_244.pth", "multiline": False, "dynamicPrompts": False}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", )
-    RETURN_NAMES = ("image", )
+    RETURN_TYPES = ("MASK", )
+    RETURN_NAMES = ("mask", )
     FUNCTION = "matting"
     CATEGORY = "Fooocus"
 
-    def matting(self, input_image, model_name: str = "BiRefNet-DIS-epoch_590.pth"):
+    def matting(self, input_image, apply_fast_foreground_estimation=True, model_name: str = "BiRefNet-general-epoch_244.pth"):
         # process auto device
         device = comfy.model_management.get_torch_device()
 
@@ -96,11 +97,23 @@ class BiRefNet_node:
 
         # Show Results
         pred_pil = transforms.ToPILImage()(pred)
-        pred_pil.resize(input_pil_image.size)
+        pred_pil = pred_pil.resize(input_pil_image.size)
 
-        image_masked = refine_foreground(input_pil_image, pred_pil)
-        image_masked.putalpha(pred_pil.resize(input_pil_image.size))
-        return pil2tensor(image_masked),
+        if apply_fast_foreground_estimation:
+            image_masked = refine_foreground(input_pil_image, pred_pil)
+            image_masked.putalpha(pred_pil.resize(input_pil_image.size))
+
+            mask = np.array(image_masked.getchannel('A')).astype(np.float32) / 255.0
+            mask = 1. - torch.from_numpy(mask)
+            return mask,
+        else:
+            return pil2mask(pred_pil),
+
+
+def pil2mask(image):
+    image_np = np.array(image.convert("L")).astype(np.float32) / 255.0
+    mask = torch.from_numpy(image_np)
+    return 1.0 - mask
 
 
 def tensor2pil(image):
