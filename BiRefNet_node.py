@@ -1,5 +1,9 @@
 import os
 import sys
+from typing import Tuple
+
+import math
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from collections import defaultdict
@@ -61,7 +65,28 @@ class BiRefNet_node:
     FUNCTION = "matting"
     CATEGORY = "Fooocus"
 
-    def matting(self, input_image, apply_fast_foreground_estimation=True, model_name: str = "BiRefNet-general-epoch_244.pth"):
+    def matting(self,
+                input_image,
+                apply_fast_foreground_estimation=True,
+                model_name: str = "BiRefNet-general-epoch_244.pth",
+                minimum_padding_to_enable_fuzz_fix=100,
+                fuzz_fix_canvas_size=1024):
+        input_pil_image = tensor2pil(input_image)
+        input_image_width, input_image_height = input_pil_image.size
+        image_masked = self._process(input_image, apply_fast_foreground_estimation, model_name)
+        leading, top, trailing, bottom = image_masked.getbbox()
+        if (leading > minimum_padding_to_enable_fuzz_fix or
+            top > minimum_padding_to_enable_fuzz_fix or
+            (input_image_width - trailing) > minimum_padding_to_enable_fuzz_fix or
+            (input_image_height - bottom) > minimum_padding_to_enable_fuzz_fix):
+            content_image = input_pil_image.crop(image_masked.getbbox())
+            image_masked = self._process(pil2tensor(content_image), apply_fast_foreground_estimation, model_name)
+
+        mask = np.array(image_masked.getchannel('A')).astype(np.float32) / 255.0
+        mask = torch.from_numpy(mask)
+        return mask,
+
+    def _process(self, input_image, apply_fast_foreground_estimation, model_name: str):
         # process auto device
         device = comfy.model_management.get_torch_device()
 
@@ -88,7 +113,7 @@ class BiRefNet_node:
         img = BI_REF_NET_PROCESSOR(input_image.squeeze().numpy())
         inputs = img[None, ...].to(device)
         logger.debug(f"{inputs.shape}")
-        
+
         with torch.no_grad():
             preds = BI_REF_NET_MODEL(inputs)[-1].sigmoid().cpu()
         pred = preds[0].squeeze()
@@ -102,12 +127,10 @@ class BiRefNet_node:
         if apply_fast_foreground_estimation:
             image_masked = refine_foreground(input_pil_image, pred_pil)
             image_masked.putalpha(pred_pil.resize(input_pil_image.size))
-
-            mask = np.array(image_masked.getchannel('A')).astype(np.float32) / 255.0
-            mask = torch.from_numpy(mask)
-            return mask,
+            return image_masked
         else:
-            return pil2mask(pred_pil),
+            input_pil_image.putalpha(pred_pil.resize(input_pil_image.size))
+            return input_pil_image
 
 
 def pil2mask(image):
@@ -122,6 +145,24 @@ def tensor2pil(image):
 
 def pil2tensor(image):
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
+
+
+def aspect_fit_size(image_size: Tuple[int, int], canvas_size: Tuple[int, int]) -> Tuple[int, int]:
+    width, height = image_size
+    max_width, max_height = canvas_size
+
+    if width > max_width or height > max_height:
+        result_width, result_height = canvas_size
+        mw = float(max_width) / float(width)
+        mh = float(max_height) / float(height)
+
+        if mh < mw:
+            result_width = max_height / height * width
+        elif mw < mh:
+            result_height = max_width / width * height
+    else:
+        result_width, result_height = image_size
+    return int(math.floor(result_width)), int(math.floor(result_height))
 
 
 NODE_CLASS_MAPPINGS = {
