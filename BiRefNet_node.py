@@ -104,7 +104,7 @@ class BiRefNet_node:
             image_masked.putalpha(pred_pil.resize(input_pil_image.size))
 
             mask = np.array(image_masked.getchannel('A')).astype(np.float32) / 255.0
-            mask = 1. - torch.from_numpy(mask)
+            mask = torch.from_numpy(mask)
             return mask,
         else:
             return pil2mask(pred_pil),
