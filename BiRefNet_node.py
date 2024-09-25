@@ -57,6 +57,8 @@ class BiRefNet_node:
             "optional": {
                 "apply_fast_foreground_estimation": ("BOOLEAN", {"default": True},),
                 "model_name": ("STRING", {"default": "BiRefNet-general-epoch_244.pth", "multiline": False, "dynamicPrompts": False}),
+                "reference_image": ("IMAGE", {}),
+                "reference_image_padding": ("INT", {"default": 0, "min": 0, "max": 512, "step": 1}),
             }
         }
 
@@ -69,18 +71,35 @@ class BiRefNet_node:
                 input_image,
                 apply_fast_foreground_estimation=True,
                 model_name: str = "BiRefNet-general-epoch_244.pth",
-                minimum_padding_to_enable_fuzz_fix=100,
-                fuzz_fix_canvas_size=1024):
-        input_pil_image = tensor2pil(input_image)
-        input_image_width, input_image_height = input_pil_image.size
+                reference_image=None,
+                reference_image_padding=0):
+        reference_pil_image = None
+        leading = 0
+        top = 0
+        trailing = 0
+        bottom = 0
+        if reference_image is not None:
+            input_pil_image = tensor2pil(input_image)
+            reference_pil_image = tensor2pil(reference_image)
+            assert input_pil_image.size == reference_pil_image.size
+
+            input_image_width, input_image_height = input_pil_image.size
+            leading, top, trailing, bottom = reference_pil_image.getbbox()
+            leading = max(0, leading - reference_image_padding)
+            top = max(0, top - reference_image_padding)
+            trailing = min(input_image_width, trailing + reference_image_padding)
+            bottom = min(input_image_height, bottom + reference_image_padding)
+
+            content_image = input_pil_image.crop((leading, top, trailing, bottom))
+            content_image.save("modified_input.png")
+
+            input_image = pil2tensor(content_image)
+
         image_masked = self._process(input_image, apply_fast_foreground_estimation, model_name)
-        leading, top, trailing, bottom = image_masked.getbbox()
-        if (leading > minimum_padding_to_enable_fuzz_fix or
-            top > minimum_padding_to_enable_fuzz_fix or
-            (input_image_width - trailing) > minimum_padding_to_enable_fuzz_fix or
-            (input_image_height - bottom) > minimum_padding_to_enable_fuzz_fix):
-            content_image = input_pil_image.crop(image_masked.getbbox())
-            image_masked = self._process(pil2tensor(content_image), apply_fast_foreground_estimation, model_name)
+        if reference_pil_image is not None:
+            merged_image = Image.new("RGBA", reference_pil_image.size)
+            merged_image.paste(image_masked, box=(leading, top, trailing, bottom), mask=image_masked)
+            image_masked = merged_image
 
         mask = np.array(image_masked.getchannel('A')).astype(np.float32) / 255.0
         mask = torch.from_numpy(mask)
